@@ -77,6 +77,7 @@ import { formatErrorResponse } from "../../bridge";
 import { bindRouteReasoningReplayScope } from "./core-replay";
 import { sessionIdHeaderFromRequest, normalizeLogConversationId } from "../request-log-conversation";
 import { redactSecretString } from "../../lib/redact";
+import { captureAccountAutoPauseAttempt } from "../../oauth/account-auto-pause";
 import { selectProactiveApiKeyTransport } from "../../providers/key-failover";
 import { isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
 import { providerConsumesCallerAuthorization } from "../../providers/caller-authorization";
@@ -587,6 +588,10 @@ export async function prepareResponsesTransport(
       // Pacing may outlive admission. Preserve local pause/cooldown reasons even when
       // a strict route rejects the old proposal before another bearer can be resolved.
       let candidate = servingOAuthSnapshot;
+      if (anthropicInstance === undefined && candidate && getAccountSet(route.providerName)?.accounts.find(row => row.id === candidate!.accountId)?.paused) {
+        oauthSelection = captureOAuthAccountSelection(route.providerName);
+        candidate = oauthSelection ? await getValidAccessSnapshotForAccount(route.providerName, oauthSelection.accountId, { requireUsableAccount: true }) : undefined;
+      }
       if (anthropicInstance !== undefined) {
         oauthSelection = captureOAuthAccountSelection(route.providerName);
         const accountId = await anthropicRouting!.resolveAnthropicDispatchAccountId(config, anthropicSessionKey, anthropicRouteDecision, route.modelId);
@@ -607,6 +612,15 @@ export async function prepareResponsesTransport(
     );
     invalidateSameTargetRequest();
     return adapter;
+  };
+  const recoverAutoPausedSelection = async (requestParsed: OcxParsedRequest): Promise<boolean> => {
+    if (route.provider.authMode === "forward") return false;
+    const available = route.provider.authMode === "oauth"
+      ? getAccountSet(route.providerName)?.accounts.some(row => !row.paused && !row.needsReauth)
+      : !!config.providers[route.providerName]?.apiKey;
+    if (!available) return false;
+    await refreshDispatchAdapter(requestParsed);
+    return true;
   };
   const refreshRunTurnAdapter = async (requestParsed: OcxParsedRequest): Promise<ProviderAdapter> => {
     requestParsed._cursorIdentityScope = undefined;
@@ -642,6 +656,7 @@ export async function prepareResponsesTransport(
           providerName: route.providerName, modelId: route.modelId, pacingSlotAcquired: true,
           pacingSlot: attemptSlot,
           turnScopedPacing: true,
+          accountAutoPause: { config, oauth: binding?.kind === "oauth" ? binding.snapshot : undefined },
           beforeDispatch: () => {
             if (sent) return;
             if (!selectionIsCurrent(binding)) {
@@ -696,6 +711,8 @@ export async function prepareResponsesTransport(
           // apply a host-scoped decision to a different host.
           const releaseFamily = snapshot ? anthropicQuota!.claimAnthropicFamilyRevalidation(snapshot.accountId, route.modelId) : () => {};
           if (!releaseFamily) throw new AnthropicAccountCooldownError(1);
+          const observeAutoPause = captureAccountAutoPauseAttempt(route.providerName, binding?.kind === "api-key" ? binding.provider : route.provider,
+            { config, oauth: binding?.kind === "oauth" ? binding.snapshot : undefined }, new Headers(dispatchInit.headers));
           let response: Response;
           let physicalOwner: AnthropicPhysicalSendOwnership | null = null;
           try {
@@ -735,6 +752,7 @@ export async function prepareResponsesTransport(
             } catch { /* best-effort observation cannot fail the response */ }
           }
           if (!response.ok) await recordKeyAttemptFailure(logCtx, response, dispatchInit.signal ?? options.abortSignal);
+          if (observeAutoPause) response = await observeAutoPause(response);
           return response;
         }
         let nextAdapter: ProviderAdapter;
@@ -1203,6 +1221,7 @@ export async function prepareResponsesTransport(
     oauthDispatch,
     noteRoutedAttemptSend,
     commitKeyAttemptSend,
+    recoverAutoPausedSelection,
     bindKeyUsageFromBridge,
     anthropicSessionKey,
     isPassthrough,

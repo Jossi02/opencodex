@@ -206,3 +206,27 @@ test("a rejected save reports the pause failure and leaves the row unpaused", as
   expect(pools.accountSets.fixture.accounts.find(account => account.id === "b")?.paused).toBe(false);
   expect(notices).toEqual([{ key: "codexAuth.pauseFailed", ok: false }]);
 });
+
+test("paused key selection resumes before activation and refreshes the roster", async () => {
+  const entry = { id: "key-fixture", masked: "****", active: false, disabled: true, pauseDetails: { reason: "subscription_expired", pausedAt: 1 } };
+  const writes: Array<{ path: string; body: unknown }> = [];
+  respond = async (url, init) => {
+    if (init?.method === "PUT") { writes.push({ path: url, body: JSON.parse(String(init.body)) }); return Response.json({ activeId: entry.id }); }
+    return Response.json({ activeId: entry.id, keys: [{ ...entry, disabled: false, active: true, pauseDetails: undefined }] });
+  };
+  await act(async () => { pools.setKeyPools({ fixture: [entry] }); });
+  await act(async () => { await pools.switchApiKey("fixture", entry); });
+  expect(writes.map(row => row.path)).toEqual(["/pause-hook/api/providers/keys/pause", "/pause-hook/api/providers/keys/active"]);
+  expect(writes[0]!.body).toEqual({ name: "fixture", id: entry.id, paused: false });
+});
+
+test("a failed key resume never attempts activation", async () => {
+  const writes: string[] = [];
+  respond = async (url, init) => {
+    if (init?.method === "PUT") { writes.push(url); return new Response(null, { status: 503 }); }
+    return Response.json({ keys: [] });
+  };
+  await act(async () => { await pools.switchApiKey("fixture", { id: "key-fixture", masked: "****", active: false, disabled: true }); });
+  expect(writes).toEqual(["/pause-hook/api/providers/keys/pause"]);
+  expect(notices).toContainEqual({ key: "prov.keySwitchFail", ok: false });
+});

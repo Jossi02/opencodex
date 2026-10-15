@@ -766,6 +766,19 @@
       "documents": [
         "tests/"
       ]
+    },
+    {
+      "path": "account-auto-pause.md",
+      "tier": 2,
+      "title": "Account Auto-Pause",
+      "scope": "Opt-in permanent account refusal classification, credential fences, durable pause metadata, bounded recovery and resume.",
+      "documents": [
+        "src/oauth/account-auto-pause.ts",
+        "src/oauth/account-auto-pause-policy.ts",
+        "src/providers/api-key-pause.ts",
+        "src/types/account-auto-pause.ts",
+        "src/lib/account-auto-pause-response.ts"
+      ]
     }
   ],
   "contracts": {

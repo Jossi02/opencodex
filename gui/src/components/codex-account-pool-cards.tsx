@@ -118,7 +118,7 @@ export function CodexAccountPoolCards({
                 </span>
               )}
               {a.paused && (
-                <span className="badge badge-muted" title={t("codexAuth.pausedHint")}>
+                <span className="badge badge-muted" title={a.pauseDetails ? `${a.pauseDetails.reason} · ${new Date(a.pauseDetails.pausedAt).toLocaleString()}` : t("codexAuth.pausedHint")}>
                   {t("codexAuth.paused")}
                 </span>
               )}

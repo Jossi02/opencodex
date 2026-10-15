@@ -18,6 +18,8 @@ export interface ProviderApiKeyInfo extends AccountQuotaFields {
   /** First/last 4 chars only; env references (`${VAR}`) are shown verbatim (not secrets). */
   masked: string;
   active: boolean;
+  disabled?: boolean;
+  pauseDetails?: import("../types/account-auto-pause").AccountPauseDetails;
   addedAt?: number;
 }
 
@@ -66,7 +68,7 @@ export function listProviderApiKeys(config: OcxConfig, name: string): { activeId
   const pool = provider.apiKeyPool?.length
     ? provider.apiKeyPool
     : provider.apiKey ? [{ id: apiKeyPoolEntryId(provider.apiKey), key: provider.apiKey }] : [];
-  const activeId = (pool.find(entry => entry.key === provider.apiKey) ?? pool[0])?.id ?? null;
+  const activeId = pool.find(entry => entry.key === provider.apiKey)?.id ?? null;
   return {
     activeId,
     keys: pool.map(entry => ({
@@ -74,6 +76,8 @@ export function listProviderApiKeys(config: OcxConfig, name: string): { activeId
       ...(entry.label ? { label: entry.label } : {}),
       masked: maskApiKey(entry.key),
       active: entry.id === activeId,
+      ...(entry.disabled ? { disabled: true } : {}),
+      ...(entry.pauseDetails ? { pauseDetails: entry.pauseDetails } : {}),
       ...(entry.addedAt !== undefined ? { addedAt: entry.addedAt } : {}),
     })),
   };
@@ -95,7 +99,7 @@ export function addProviderApiKey(config: OcxConfig, name: string, key: string, 
     } else {
       pool.push({ id, key: trimmed, ...(label?.trim() ? { label: label.trim() } : {}), addedAt: Date.now() });
     }
-    fresh.apiKey = trimmed;
+    if (!existing?.disabled) fresh.apiKey = trimmed;
     return { changed: true, selectionChanged: true, value: id };
   });
   return committed.status === "committed" ? { id } : { error: "provider selection unavailable" };
@@ -107,7 +111,7 @@ export function setActiveProviderApiKey(config: OcxConfig, name: string, id: str
     const entry = provider.apiKeyPool?.find(e => e.id === id)
       ?? (!provider.apiKeyPool?.length && provider.apiKey && apiKeyPoolEntryId(provider.apiKey) === id
         ? { id, key: provider.apiKey } : undefined);
-    if (!entry) return { changed: false, value: false };
+    if (!entry || entry.disabled) return { changed: false, value: false };
     ensurePool(provider);
     provider.apiKey = entry.key;
     return { changed: true, selectionChanged: true, value: true };
@@ -136,7 +140,7 @@ export function removeProviderApiKey(config: OcxConfig, name: string, id: string
     if (!entry) return { changed: false, value: false };
     provider.apiKeyPool = pool.filter(e => e.id !== id);
     if (provider.apiKey === entry.key) {
-      const next = provider.apiKeyPool[0];
+      const next = provider.apiKeyPool.find(candidate => !candidate.disabled);
       if (next) provider.apiKey = next.key;
       else delete provider.apiKey;
     }

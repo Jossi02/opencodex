@@ -24,7 +24,7 @@ Native main reauthentication follows the [CLI JSON output contract](runtime.md#n
 The Codex restart command follows the [CLI restart scope contract](runtime.md#cli-codex-restart-scope).
 
 `src/cli/account-orca-import.ts` exposes an explicit-source, preview-first local import command. Apply adds pool configuration under the shared mutation lock;
-the [source-owned credential contract](codex-home.md#orca-source-owned-account-import) governs deduplication and credential storage separately from Codex config injection.
+the [source-owned credential contract](codex-home.md#orca-source-owned-account-import) governs deduplication and credential storage separately from Codex config injection. See [permanent refusal auto-pause](account-auto-pause.md).
 
 ## Config surface
 

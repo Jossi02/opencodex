@@ -1,0 +1,71 @@
+# Account Auto-Pause
+
+Opt-in policy, credential ownership, durable pause metadata, and bounded recovery for
+permanent account refusals. Counters are process-local; persisted pauses require explicit resume.
+
+## Opt-in account refusal observation
+
+`src/server/responses/fetch-helpers.ts` accepts an optional account binding for physical
+Codex/runTurn response observation. OAuth/key HTTP overrides capture after reselection in
+`src/server/responses/request-transport.ts`; native Chat/Messages capture at their send
+boundaries. `src/oauth/account-auto-pause.ts` is dormant unless the named provider explicitly
+enables the policy, writes only fixed pause metadata, and preserves upstream responses if
+optional persistence fails. Counters and asynchronous decisions belong to the runtime
+config object; completed pauses belong to the existing durable account stores.
+
+## Permanent account refusal policy
+
+`providers.<name>.accountAutoPause` is optional, default off, with an integer
+`consecutiveFailures` in 1–100 (default 2). `src/config/schema/account-auto-pause.ts` validates
+the policy and allowlisted reason/timestamp DTO. OAuth pause metadata is stored with the
+auth row; Codex metadata/revision fences use `codexAccountPauseState`; key pools retain
+`disabled`, `pauseDetails` and `pauseRevision` per entry. Runtime counters are process-local.
+Manual resume clears details and changes the revision, fencing already-sent refusals.
+
+## Opt-in permanent refusal recovery
+
+`src/server/responses/request-transport.ts` observes exact physical account outcomes before
+retry wrappers replace the response. Threshold-triggered OAuth/key pauses rebuild the
+request through `src/server/responses/account-auto-pause-recovery.ts` and the existing selection owner, with at most three account moves funded by the existing recovery owner.
+`src/server/responses/passthrough-dispatch.ts` and
+`src/server/responses/core-codex-account.ts` admit a confirmed Codex auto-pause to the
+existing alternate-account ladder without reclassifying subscription refusal as a dead
+credential. `src/server/responses/compact.ts` observes the same pool contexts. Fixed
+account selectors and uploaded-file constraints continue to suppress alternate moves.
+
+## Permanent account refusal auto-pause
+
+`src/oauth/account-auto-pause.ts` captures the exact sending OAuth snapshot, Codex context
+or API-key selection and validates outgoing credential headers before observing a response.
+`src/oauth/account-auto-pause-policy.ts` recognizes whole account-scoped 401/403 messages,
+serializes response-arrival decisions, resets on accepted HTTP responses, and excludes
+transient/quota/model/request failures. No provider body or account identifier enters its log.
+The opt-in counter defaults to two refusals; each process owns its counters. Durable pause
+uses `setAccountPaused`, `setCodexAccountPaused`, or
+`src/providers/api-key-pause.ts`; resume changes an incarnation fence and clears the reason.
+API-key selectors and reactive/proactive failover exclude disabled pool entries.
+Regression coverage: `tests/oauth/oauth-account-auto-pause.test.ts` and
+`tests/responses/responses-account-auto-pause.test.ts`.
+
+## Auto-paused account recovery
+
+OAuth and Codex account-list DTOs project optional `pauseDetails` (fixed reason plus epoch
+ms timestamp) beside the existing pause flag. The CLI preserves those fields and includes
+the reason in account listings. `src/server/management/oauth-account-routes.ts` also serves
+`PUT /api/providers/keys/pause` with provider `name`, key `id` and boolean `paused`, through
+the existing management authorization boundary. Key listings expose `disabled` and pause
+details. Dashboard key Resume clears the pause through that endpoint before activating
+the key; OAuth/Codex keep their existing resume actions.
+
+## Permanent refusal pause indicators
+
+`gui/src/components/provider-workspace/ProviderAuthPanel.tsx` and
+`gui/src/components/codex-account-pool-cards.tsx` expose fixed auto-pause reason and timestamp
+on Paused badges. Disabled key rows offer Resume through their existing selection action;
+`gui/src/hooks/useProviderAccountPools.ts` resumes before activation, then refreshes the
+roster under its existing selection-mutation fence. No upstream error body is displayed.
+
+`src/lib/account-auto-pause-response.ts` retains process-local pause/refusal markers when
+adapter error normalization replaces a response, without exposing metadata in HTTP headers.
+
+`src/types/account-auto-pause.ts` owns the policy and fixed pause-reason DTO vocabulary.

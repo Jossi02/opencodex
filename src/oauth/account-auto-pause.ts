@@ -1,0 +1,128 @@
+import type { OcxConfig, OcxProviderConfig } from "../types";
+import type { OAuthAccessSnapshot } from "./index";
+import type { CodexAuthContext } from "../codex/auth-context";
+import type { AccountPauseReason } from "../types/account-auto-pause";
+import { credentialGeneration, getAccountSet, setAccountPaused } from "./store";
+import { mutatePersistedConfig } from "../config";
+import { isCodexAccountGenerationLive, readCodexAccountRecord } from "../codex/account-store";
+import { captureMainQuotaDispatch, isMainQuotaDispatchLive } from "../codex/main-account-cache";
+import { isCodexAccountPaused, setCodexAccountPaused } from "../codex/account-pause";
+import { apiKeyPoolEntryId } from "../providers/api-keys";
+import { resolveProviderApiKey } from "../providers/api-key-resolve";
+import { createHash } from "node:crypto";
+import { setProviderApiKeyPaused } from "../providers/api-key-pause";
+import { AccountRefusalStreaks, autoPauseThreshold, permanentAccountRefusal } from "./account-auto-pause-policy";
+import { clearThreadAccountMapForAccount, reconcileCodexActiveAfterExclusion } from "../codex/routing";
+import { isNonReplayableResponse } from "../lib/upstream-retry";
+
+const streaks = new WeakMap<OcxConfig, AccountRefusalStreaks>();
+export { wasAccountAutoPaused, wasPermanentAccountRefusal } from "../lib/account-auto-pause-response";
+import { markAccountAutoPaused, markPermanentAccountRefusal } from "../lib/account-auto-pause-response";
+export interface AccountAutoPauseBinding {
+  config: OcxConfig;
+  oauth?: OAuthAccessSnapshot;
+  codex?: CodexAuthContext;
+}
+
+/** Capture before transport. A later response cannot acquire authority over a newer login/resume. */
+export function captureAccountAutoPauseAttempt(name: string, provider: OcxProviderConfig, binding?: AccountAutoPauseBinding, headers?: Headers):
+  ((response: Response) => Promise<Response>) | undefined {
+  if (!binding) return;
+  const { config, oauth, codex } = binding;
+  const threshold = autoPauseThreshold(config.providers[name]?.accountAutoPause);
+  if (!threshold) return;
+  const configured = config.providers[name];
+  if (!configured || configured.disabled) return;
+  const route = JSON.stringify([configured.baseUrl, configured.adapter, configured.authMode]);
+  const policyCurrent = () => autoPauseThreshold(config.providers[name]?.accountAutoPause) === threshold
+    && JSON.stringify([config.providers[name]?.baseUrl, config.providers[name]?.adapter, config.providers[name]?.authMode]) === route;
+  let key: string, incarnation: string, current: () => boolean;
+  let pause: (reason: AccountPauseReason) => Promise<boolean>;
+  if (provider.authMode === "oauth") {
+    if (!oauth || oauth.provider !== name || headers?.get("authorization") !== `Bearer ${oauth.accessToken}` || headers.has("x-api-key")) return;
+    const row = getAccountSet(name)?.accounts.find(a => a.id === oauth.accountId);
+    if (!row || row.paused || credentialGeneration(row.credential) !== oauth.generation) return;
+    const revision = row.pauseRevision;
+    key = `${name}\0oauth\0${oauth.accountId}`;
+    incarnation = `${row.loginId ?? row.addedAt ?? oauth.accountId}\0${revision ?? ""}`;
+    current = () => {
+      const live = getAccountSet(name)?.accounts.find(a => a.id === oauth.accountId);
+      return !!live && !live.paused && live.pauseRevision === revision && credentialGeneration(live.credential) === oauth.generation;
+    };
+    pause = async reason => (await setAccountPaused(name, oauth.accountId, true, {
+      generation: oauth.generation, pauseRevision: revision, isCurrent: policyCurrent, details: { reason, pausedAt: Date.now() },
+    })).status === "updated";
+  } else if (provider.authMode === "forward") {
+    if (!codex || codex.kind !== "pool" && codex.kind !== "main-pool") return;
+    const { accountId } = codex;
+    if (headers?.get("authorization") !== `Bearer ${codex.accessToken}`) return;
+    const revision = config.codexAccountPauseState?.[accountId]?.revision;
+    const mainDispatch = codex.kind === "main-pool" ? captureMainQuotaDispatch(codex.accessToken, codex.chatgptAccountId, codex.writerGeneration) : undefined;
+    const credentialCurrent = () => codex.kind === "pool"
+      ? isCodexAccountGenerationLive(accountId, codex.generation)
+      : !!mainDispatch && isMainQuotaDispatchLive(mainDispatch);
+    key = `${name}\0codex\0${accountId}`;
+    incarnation = `${codex.kind === "pool" ? readCodexAccountRecord(accountId)?.quotaHistoryIdentity ?? codex.generation : mainDispatch?.credentialGeneration}\0${revision ?? ""}`;
+    current = () => !isCodexAccountPaused(config, accountId)
+      && config.codexAccountPauseState?.[accountId]?.revision === revision && credentialCurrent();
+    pause = async reason => {
+      let pauseState: OcxConfig["codexAccountPauseState"];
+      const outcome = mutatePersistedConfig(fresh => {
+        if (!credentialCurrent() || isCodexAccountPaused(fresh, accountId)
+          || fresh.codexAccountPauseState?.[accountId]?.revision !== revision
+          || autoPauseThreshold(fresh.providers[name]?.accountAutoPause) !== threshold) return { changed: false, value: false };
+        setCodexAccountPaused(fresh, accountId, true, { reason, pausedAt: Date.now() });
+        pauseState = structuredClone(fresh.codexAccountPauseState);
+        return { changed: true, value: true };
+      });
+      if (outcome.status !== "committed" || !outcome.value) return false;
+      config.pausedCodexAccountIds = [...new Set([...(config.pausedCodexAccountIds ?? []), accountId])];
+      config.codexAccountPauseState = pauseState;
+      clearThreadAccountMapForAccount(accountId);
+      reconcileCodexActiveAfterExclusion(config, accountId);
+      return true;
+    };
+  } else {
+    const selection = provider._apiKeyAttempt;
+    if (!headers || !provider.apiKey || ![headers.get("authorization"), headers.get("x-api-key"), headers.get("x-goog-api-key")].some(value => value === provider.apiKey || value === `Bearer ${provider.apiKey}`)) return;
+    const entry = configured.apiKeyPool?.find(e => e.id === selection?.entryId && e.key === selection.reference)
+      ?? (!configured.apiKeyPool?.length && configured.apiKey ? { id: apiKeyPoolEntryId(configured.apiKey), key: configured.apiKey, disabled: false, pauseRevision: undefined } : undefined);
+    if (!entry || entry.disabled || !selection) return;
+    const { id, key: reference, pauseRevision } = entry;
+    key = `${name}\0key\0${id}`;
+    const resolvedKey = provider.apiKey;
+    incarnation = `${createHash("sha256").update(resolvedKey).digest("hex")}\0${pauseRevision ?? ""}`;
+    current = () => {
+      const configured = config.providers[name];
+      const live = configured?.apiKeyPool?.find(e => e.id === id) ?? (!configured?.apiKeyPool?.length && configured?.apiKey === reference ? entry : undefined);
+      return !!live && !live.disabled && live.key === reference && live.pauseRevision === pauseRevision && resolveProviderApiKey(reference) === resolvedKey;
+    };
+    pause = async reason => setProviderApiKeyPaused(config, name, id, true, {
+      selection, pauseRevision, resolvedKey, details: { reason, pausedAt: Date.now() },
+    });
+  }
+  let tracker = streaks.get(config);
+  if (!tracker) { tracker = new AccountRefusalStreaks(); streaks.set(config, tracker); }
+  const observed = new WeakSet<Response>();
+  return async response => {
+    if (observed.has(response) || isNonReplayableResponse(response)) return response;
+    observed.add(response);
+    try {
+      const verdict = permanentAccountRefusal(response).then(reason => {
+        if (reason) markPermanentAccountRefusal(response);
+        return reason;
+      });
+      const paused = await tracker.observe(key, incarnation, threshold, verdict, response.ok,
+        () => policyCurrent() && current(), pause);
+      if (paused) {
+        markAccountAutoPaused(response);
+        // Fixed codes only. Never print the upstream body, provider label, or account identifier.
+        console.warn(`[account-auto-pause] paused after ${threshold} consecutive permanent account refusals`);
+      }
+    } catch {
+      // Optional persistence must preserve the original provider response.
+      console.warn("[account-auto-pause] could not persist account pause; upstream response preserved");
+    }
+    return response;
+  };
+}

@@ -19,7 +19,8 @@ function matchesSelection(provider: OcxProviderConfig, expected: ProviderApiKeyS
 
 function currentKeyProvider(config: OcxConfig, name: string): OcxProviderConfig | null {
   const configured = config.providers[name];
-  if (!configured || configured.disabled) return null;
+  if (!configured || configured.disabled || configured.apiKeyPool?.some(entry => entry.disabled && entry.key === configured.apiKey)
+    || configured.apiKeyPool?.length && configured.apiKeyPool.every(entry => entry.disabled)) return null;
   const current = routedProviderConfig(name, { ...configured, _apiKeyAttempt: undefined });
   if (current.authMode === "oauth" || current.authMode === "forward") return null;
   if (current.authMode === "key" && !current.keyOptional && !current.apiKey?.trim()) return null;

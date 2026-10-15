@@ -33,6 +33,7 @@ Persisted config, the Codex home it writes into, and the model catalog it publis
 | [`subagents.md`](subagents.md) | Multi-agent surface mode and subagent roster ordering. |
 | [`advisor.md`](advisor.md) | The OpenCodex-owned expert consultation sidecar: synthetic advisor tool, preflight policy, loopback consultation through the routing authority, and the optional-subsystem seam. |
 | [`config-proxy.md`](config-proxy.md) | Global proxy activation, start flags, and credential-safe CLI output. |
+| [`account-auto-pause.md`](account-auto-pause.md) | Opt-in permanent account refusal classification, credential fences, durable pause metadata, bounded recovery and resume. |
 
 ### Tier 3 — Data planes and transports
 
@@ -172,18 +173,22 @@ A source area can be described by more than one doc, because these docs are orga
 | `src/integrations/` | [`clients/integrations.md`](clients/integrations.md)<br>[`clients/qoder.md`](clients/qoder.md) |
 | `src/lab/` | [`runtime.md`](runtime.md)<br>[`adapters/compatibility-lab.md`](adapters/compatibility-lab.md) |
 | `src/lib/` | [`overview.md`](overview.md)<br>[`runtime.md`](runtime.md)<br>[`transports/byte-accounting.md`](transports/byte-accounting.md)<br>[`transports/responses-wire-shapes.md`](transports/responses-wire-shapes.md)<br>[`transports/responses-failover.md`](transports/responses-failover.md)<br>[`transports/responses-spend.md`](transports/responses-spend.md)<br>[`transports/inventory.md`](transports/inventory.md)<br>[`gui-and-management-api.md`](gui-and-management-api.md)<br>[`dashboard-and-usage.md`](dashboard-and-usage.md)<br>[`clients/integrations.md`](clients/integrations.md)<br>[`ops/service-and-sidecars.md`](ops/service-and-sidecars.md)<br>[`ops/docs-and-release.md`](ops/docs-and-release.md) |
+| `src/lib/account-auto-pause-response.ts` | [`account-auto-pause.md`](account-auto-pause.md) |
 | `src/lib/advisor-activation.ts` | [`advisor.md`](advisor.md) |
 | `src/lib/gui-pair-intent.ts` | [`remote-link.md`](remote-link.md) |
 | `src/lib/windows-owner-acl.ts` | [`remote-link.md`](remote-link.md) |
 | `src/link/` | [`remote-link.md`](remote-link.md) |
 | `src/messaging/` | [`local-messaging.md`](local-messaging.md) |
 | `src/oauth/` | [`runtime.md`](runtime.md)<br>[`transports/inventory.md`](transports/inventory.md)<br>[`providers/anthropic-account-thresholds.md`](providers/anthropic-account-thresholds.md)<br>[`providers-and-adapters.md`](providers-and-adapters.md)<br>[`providers/anthropic-account-pool.md`](providers/anthropic-account-pool.md)<br>[`providers/xai-grok.md`](providers/xai-grok.md) |
+| `src/oauth/account-auto-pause-policy.ts` | [`account-auto-pause.md`](account-auto-pause.md) |
+| `src/oauth/account-auto-pause.ts` | [`account-auto-pause.md`](account-auto-pause.md) |
 | `src/plugins/` | [`ops/plugins.md`](ops/plugins.md) |
 | `src/protocols/` | [`data-planes/protocol-paths.md`](data-planes/protocol-paths.md) |
 | `src/providers/` | [`runtime.md`](runtime.md)<br>[`subagents.md`](subagents.md)<br>[`transports/inventory.md`](transports/inventory.md)<br>[`providers-and-adapters.md`](providers-and-adapters.md)<br>[`providers/anthropic-account-pool.md`](providers/anthropic-account-pool.md)<br>[`providers/xai-grok.md`](providers/xai-grok.md) |
 | `src/providers/anthropic-billing-ownership.ts` | [`providers/anthropic-key-billing.md`](providers/anthropic-key-billing.md) |
 | `src/providers/anthropic-billing-recovery.ts` | [`providers/anthropic-key-billing.md`](providers/anthropic-key-billing.md) |
 | `src/providers/anthropic-billing-refusal.ts` | [`providers/anthropic-key-billing.md`](providers/anthropic-key-billing.md) |
+| `src/providers/api-key-pause.ts` | [`account-auto-pause.md`](account-auto-pause.md) |
 | `src/providers/quota/anthropic-account-quota.ts` | [`providers/anthropic-account-pool.md`](providers/anthropic-account-pool.md) |
 | `src/providers/request-pacing.ts` | [`providers/anthropic-key-billing.md`](providers/anthropic-key-billing.md) |
 | `src/quota/` | [`dashboard-and-usage.md`](dashboard-and-usage.md) |
@@ -218,6 +223,7 @@ A source area can be described by more than one doc, because these docs are orga
 | `src/tray/` | [`runtime.md`](runtime.md) |
 | `src/types.ts` | [`runtime.md`](runtime.md)<br>[`config.md`](config.md) |
 | `src/types/` | [`providers-and-adapters.md`](providers-and-adapters.md) |
+| `src/types/account-auto-pause.ts` | [`account-auto-pause.md`](account-auto-pause.md) |
 | `src/update/` | [`runtime.md`](runtime.md)<br>[`ops/service-and-sidecars.md`](ops/service-and-sidecars.md) |
 | `src/update/job-supervised-restart.ts` | [`ops/update-supervised-recovery.md`](ops/update-supervised-recovery.md) |
 | `src/update/job.ts` | [`ops/update-supervised-recovery.md`](ops/update-supervised-recovery.md) |

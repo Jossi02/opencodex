@@ -1,3 +1,4 @@
+import { captureAccountAutoPauseAttempt, wasAccountAutoPaused } from "../oauth/account-auto-pause";
 import { createPhysicalSendReporter } from "../lib/request-execution-budget";
 import { createInferenceSendBudget } from "./inference/context";
 /**
@@ -579,6 +580,7 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
             }
             const releaseFamily = snapshot && oauthBinding ? anthropicModelQuotaFor(oauthBinding.instance).claimAnthropicFamilyRevalidation(snapshot.accountId, route.modelId) : () => {};
             if (!releaseFamily) throw new AnthropicAccountCooldownError(1);
+            const observeAutoPause = captureAccountAutoPauseAttempt(route.providerName, activeProvider, { config, oauth: sendingBinding?.snapshot }, headers);
             let dispatched: Response;
             const spendReport = createPhysicalSendReporter(physicalBudget, () => ({
               poolId: logCtx.spendPoolId ?? route.providerName, identityId: logCtx.accountLogLabel,
@@ -624,7 +626,7 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
               } catch { /* Passive observation must not fail the response. */ }
             }
             if (!dispatched.ok) await recordKeyAttemptFailure(logCtx, dispatched, init.signal ?? upstream.signal);
-            return dispatched;
+            return observeAutoPause ? observeAutoPause(dispatched) : dispatched;
           },
         }),
       ),
@@ -652,8 +654,17 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
     let billingRecoveryActive = false;
     const keySendAvailable = () => transientSendAvailable()
       && (!billingRecoveryActive || Math.max(physicalSendsUsed, physicalBudget.used) < physicalBudget.policy.maxTotalModelSends);
+    let autoPauseMoves = 0;
     for (;;) {
       const priorResponse = response;
+    for (; wasAccountAutoPaused(response) && !oauthBinding && config.providers[route.providerName]?.apiKey && autoPauseMoves < 3 && keySendAvailable(); autoPauseMoves++) {
+      const next = resolveCurrentProviderApiKeyTransport(config, route.providerName, activeProvider);
+      if (!next) break;
+      try { void response.body?.cancel().catch(() => {}); } catch { /* closed */ }
+      rebuildFor(next);
+      response = await send("key-401");
+    }
+
       // A credential-scoped 401 on a static key pool says nothing about the sibling keys.
       while (response.status === 401 && hasKeyPoolFailover(activeProvider) && keySendAvailable()) {
         const rotated = rotateProviderTransportOn401(config, route.providerName, activeProvider, {
@@ -707,7 +718,7 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
       }
       // A sibling's next refusal may change class; the same counters survive that transition.
       if (response !== priorResponse && (
-        (billingRecoveryActive && [401, 429].includes(response.status))
+        wasAccountAutoPaused(response) || (billingRecoveryActive && [401, 429].includes(response.status))
         || (activeProvider.adapter === "anthropic" && hasKeyPoolFailover(activeProvider) && [400, 402].includes(response.status))
       )) continue;
       break;

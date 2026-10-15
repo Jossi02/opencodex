@@ -114,7 +114,7 @@ config write or process control occurs. Existing Windows `check` retains zero ca
 filesystem I/O. A reported refusal can exit 0; consumers inspect `status`.
 
 The local account CLI and pool credential resolver share the [Orca source-owned import contract](codex-home.md#orca-source-owned-account-import): importing
-does not perform OAuth, and runtime credential resolution rereads the owned source.
+does not perform OAuth, and runtime credential resolution rereads the owned source. See [permanent refusal auto-pause](account-auto-pause.md).
 
 ## Entrypoints
 

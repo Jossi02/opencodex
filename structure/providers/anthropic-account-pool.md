@@ -450,3 +450,12 @@ updating live state. A confirmed published write followed by bookkeeping failure
 pool and returns a fixed warning; an unpublished failure keeps old state. Unknown outcomes require
 reload and are not represented as a successful save. The GUI checkbox is a saved preference rather
 than a promise that a route is eligible; explicit rollout opt-outs still apply.
+
+## Permanent refusal auto-pause
+
+The separate `providers.<instance>.accountAutoPause` policy is default off. Physical
+Responses and native Messages sends observe their captured bearer before recovery. Exact
+organization/OAuth or subscription refusals can persist `pauseDetails` with a fixed reason
+and timestamp through `src/oauth/store.ts`. `pauseRevision` changes on resume, so late
+pre-resume responses cannot pause the resumed account. The existing selectors rebuild an
+eligible sibling within their send budgets; proactive-pool activation is not required.

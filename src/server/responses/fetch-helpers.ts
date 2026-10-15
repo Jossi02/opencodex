@@ -1,3 +1,4 @@
+import { captureAccountAutoPauseAttempt, type AccountAutoPauseBinding } from "../../oauth/account-auto-pause";
 import type { NativeResponseControl } from "./native-response-control";
 import type { CodexWsPreOutputRefusalHold } from "./codex-ws-wire";
 import type { Server } from "bun";
@@ -223,6 +224,7 @@ export function sendWithConnectionPolicy(
 }
 
 export interface ProviderFetchOptions {
+  accountAutoPause?: AccountAutoPauseBinding;
   /**
    * Keep this send on HTTP even where the WebSocket upstream would normally be selected.
    *
@@ -337,7 +339,7 @@ export function providerFetch(
   // ChatGPT Codex backend: streaming turns ride the responses_websockets
   // transport (measured ~3s faster TTFT than the SSE POST queue); everything
   // else keeps the provider's HTTP fetch. See ws-upstream.ts for the details.
-  const unpaced = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+  const unobserved = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
     const upstreamWebsocket = provider.upstreamWebsocket;
     if (!options.httpOnly && typeof input === "string" && init
       && shouldUseCodexWsUpstream(input, init, runtime, upstreamWebsocket)) {
@@ -370,6 +372,12 @@ export function providerFetch(
         async () => { (await waitForPacing(init.signal ?? undefined))?.release(); }, notifyOnce, options.preOutputRefusalHold);
     }
     return httpFetch(input, init);
+  };
+  const unpaced = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+    const observe = captureAccountAutoPauseAttempt(providerName, provider, options.accountAutoPause,
+      new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)));
+    const response = await unobserved(input, init);
+    return observe ? observe(response) : response;
   };
   let pacingSlotAcquired = options.pacingSlotAcquired === true;
   const waitForPacing = async (signal?: AbortSignal): Promise<ProviderRequestSlot | undefined> => {

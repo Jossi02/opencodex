@@ -507,9 +507,9 @@ export function selectProactiveApiKey(
 
   const activeEntry = pool.find(entry => entry.key === provider.apiKey);
   // A healthy committed key wins, whether the operator chose it or a previous rotation did.
-  if (activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now)) return null;
+  if (activeEntry && !activeEntry.disabled && !isKeyInCooldown(providerName, activeEntry.id, now)) return null;
 
-  const eligible = pool.filter(entry => !isKeyInCooldown(providerName, entry.id, now));
+  const eligible = pool.filter(entry => !entry.disabled && !isKeyInCooldown(providerName, entry.id, now));
   if (eligible.length === 0) return null;
 
   let chosen = eligible[0]!;
@@ -518,7 +518,7 @@ export function selectProactiveApiKey(
     const lastIndex = lastId ? pool.findIndex(entry => entry.id === lastId) : -1;
     for (let offset = 1; offset <= pool.length; offset += 1) {
       const candidate = pool[(lastIndex + offset) % pool.length]!;
-      if (isKeyInCooldown(providerName, candidate.id, now)) continue;
+      if (candidate.disabled || isKeyInCooldown(providerName, candidate.id, now)) continue;
       chosen = candidate;
       break;
     }
@@ -532,11 +532,11 @@ export function selectProactiveApiKey(
   const outcome = commitProviderApiKeySelection<string | null>(config, providerName, freshProvider => {
     const freshPool = freshProvider.apiKeyPool ?? [];
     const target = freshPool.find(entry => entry.id === chosen.id);
-    if (!target) return { changed: false, value: null };
+    if (!target || target.disabled) return { changed: false, value: null };
     if (freshProvider.apiKey === target.key) return { changed: false, value: null };
     const freshActive = freshPool.find(entry => entry.key === freshProvider.apiKey);
     // Re-check under the lock: a concurrent manual selection may have landed a healthy key.
-    if (freshActive && !isKeyInCooldown(providerName, freshActive.id, now)) {
+    if (freshActive && !freshActive.disabled && !isKeyInCooldown(providerName, freshActive.id, now)) {
       return { changed: false, value: null };
     }
     freshProvider.apiKey = target.key;
@@ -731,7 +731,7 @@ function rotateKeyAfterFailure(
 
     if (freshProvider.apiKey !== failedKey) {
       const activeEntry = pool.find(entry => entry.key === freshProvider.apiKey);
-      if (activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now)) {
+      if (activeEntry && !activeEntry.disabled && !isKeyInCooldown(providerName, activeEntry.id, now)) {
         return {
           changed: false,
           value: { failedId: failedEntry?.id },
@@ -743,7 +743,7 @@ function rotateKeyAfterFailure(
     const candidateCount = failedEntry ? pool.length - 1 : pool.length;
     for (let offset = 1; offset <= candidateCount; offset += 1) {
       const candidate = pool[(currentIndex + offset) % pool.length]!;
-      if (isKeyInCooldown(providerName, candidate.id, now)) continue;
+      if (candidate.disabled || isKeyInCooldown(providerName, candidate.id, now)) continue;
       freshProvider.apiKey = candidate.key;
       return {
         changed: true,

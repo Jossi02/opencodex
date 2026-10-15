@@ -1,3 +1,4 @@
+import { captureAccountAutoPauseAttempt, wasAccountAutoPaused } from "../oauth/account-auto-pause";
 import { createPhysicalSendReporter } from "../lib/request-execution-budget";
 import { createInferenceSendBudget } from "./inference/context";
 import { buildOpenAIChatPassthroughRequest, createOpenAIChatAdapter } from "../adapters/openai-chat";
@@ -423,7 +424,7 @@ export async function runNativeChatAttempt(
 
   const send = async (
     request: AdapterRequest,
-    recovery?: "rate-limit-429" | "key-429" | UpstreamSendRecovery,
+    recovery?: "rate-limit-429" | "key-401" | "key-429" | UpstreamSendRecovery,
     singleShot = false,
   ): Promise<Response> => {
     try {
@@ -478,6 +479,7 @@ export async function runNativeChatAttempt(
               const spendReport = createPhysicalSendReporter(physicalBudget, () => ({
                 poolId: logCtx.spendPoolId ?? route.providerName, identityId: logCtx.accountLogLabel,
               }), execution.comboDispatchPermit);
+              const observeAutoPause = captureAccountAutoPauseAttempt(route.providerName, activeProvider, { config, oauth: undefined }, headers);
               let dispatched: Response;
               try {
                 // Capture this request's spend policy at its first physical boundary, including
@@ -511,7 +513,7 @@ export async function runNativeChatAttempt(
                 finally { spendReport.close?.(); }
               }
               if (!dispatched.ok) await recordKeyAttemptFailure(logCtx, dispatched, init.signal ?? upstream.signal);
-              return dispatched;
+              return observeAutoPause ? observeAutoPause(dispatched) : dispatched;
             },
           }),
         );
@@ -544,6 +546,22 @@ export async function runNativeChatAttempt(
     response = await send(activeRequest);
     const retryPolicy = rateLimitRetryPolicyFor(activeProvider);
     let retries = 0;
+    let autoPauseMoves = 0;
+    for (;;) {
+      const priorResponse = response;
+    for (; wasAccountAutoPaused(response) && config.providers[route.providerName]?.apiKey && autoPauseMoves < 3 && transientSendAvailable(); autoPauseMoves++) {
+      const next = resolveCurrentProviderApiKeyTransport(config, route.providerName, activeProvider);
+      if (!next) break;
+      try { void response.body?.cancel().catch(() => {}); } catch { /* closed */ }
+      activeProvider = next;
+      stampApiKeyAccountLabel(logCtx, route.providerName, activeProvider);
+      activeAdapter = createOpenAIChatAdapter(activeProvider);
+      releaseRetainedRequest();
+      activeRequest = buildActiveRequest();
+      retainRequest(activeRequest);
+      response = await send(activeRequest, "key-401");
+    }
+
     while (
       response.status === 429
       // A 429 this proxy synthesized for a refused reset replay is not a provider rate
@@ -588,6 +606,10 @@ export async function runNativeChatAttempt(
       retainRequest(activeRequest);
       response = await send(activeRequest, "key-429");
     }
+      if (response !== priorResponse && wasAccountAutoPaused(response)) continue;
+      break;
+    }
+
   } catch (error) {
     releaseRetainedRequest();
     cleanupAbort();

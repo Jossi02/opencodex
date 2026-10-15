@@ -19,6 +19,7 @@
  *   distinct one. Kimi extracts JWT `user_id`/`sub` as accountId; Cursor extracts JWT `sub` —
  *   both append distinct identified accounts under multiauth.
  */
+import { accountPauseDetailsSchema } from "../config/schema/account-auto-pause";
 import { normalizeOAuthPlan, mergeOAuthPlan } from "./plan";
 import { normalizeAnthropicIdentity, matchesAnthropicImport, mergeAnthropicIdentity } from "./anthropic-identity";
 import { findKiroAccountForLogin, withRetainedKiroUser } from "./kiro-account-identity";
@@ -638,7 +639,12 @@ function normalizeAccount(value: unknown): ProviderAccount | null {
   if (candidate.refreshAttentionGeneration === credentialGeneration(credential)) {
     account.refreshAttentionGeneration = candidate.refreshAttentionGeneration;
   }
-  if (candidate.paused === true) account.paused = true;
+  if (candidate.paused === true) {
+    account.paused = true;
+    const details = accountPauseDetailsSchema.safeParse(candidate.pauseDetails);
+    if (details.success) account.pauseDetails = details.data;
+  }
+  if (typeof candidate.pauseRevision === "string") account.pauseRevision = candidate.pauseRevision;
   const threshold = parseAnthropicAccountThreshold(candidate.autoSwitchThresholdOverride);
   if (threshold !== null) account.autoSwitchThresholdOverride = threshold;
   if (candidate.needsReauth === true && candidate.needsReauthReason === "verify_account") {
@@ -1381,17 +1387,23 @@ export async function setAccountPaused(
   provider: string,
   accountId: string,
   paused: boolean,
+  automatic?: { generation: string; pauseRevision?: string; details: import("../types/account-auto-pause").AccountPauseDetails; isCurrent?: () => boolean },
 ): Promise<SetAccountPausedResult> {
   const result = await mutateStore(store => {
     const set = store[provider];
     const account = set?.accounts.find(candidate => candidate.id === accountId);
     if (!set || !account) return { status: "not-found" } as const;
-    if ((account.paused === true) === paused) {
+    if (automatic && (automatic.isCurrent?.() === false || credentialGeneration(account.credential) !== automatic.generation
+      || account.pauseRevision !== automatic.pauseRevision)) return { status: "not-found" } as const;
+    if (paused && account.paused === true) {
       return { status: "unchanged", activeAccountId: set.activeAccountId, activeAccountChanged: false } as const;
     }
 
     if (paused) account.paused = true;
     else delete account.paused;
+    account.pauseRevision = randomUUID();
+    if (automatic) account.pauseDetails = automatic.details;
+    else delete account.pauseDetails;
     // Pause is part of selection eligibility even when the operator changes a non-active
     // account. Bump the provider selection revision so observers receive the existing
     // post-persistence roster invalidation and stale automatic proposals cannot commit.
@@ -1425,7 +1437,9 @@ export async function setAccountPaused(
       activeAccountId: set.activeAccountId,
       activeAccountChanged,
     } as const;
-  }, [provider, accountId, paused]);
+  }, [provider, accountId, paused], { assertBeforePersist: () => {
+    if (automatic?.isCurrent?.() === false) throw new Error("Account auto-pause policy changed before persistence");
+  } });
   if (result.status === "updated") publishOAuthAccountPauseChange(provider);
   return result;
 }
@@ -1478,6 +1492,8 @@ export async function replaceProviderAccountSet(
         ...(account.needsReauth ? { needsReauth: true } : {}),
         ...(account.refreshAttentionGeneration ? { refreshAttentionGeneration: account.refreshAttentionGeneration } : {}),
         ...(account.paused ? { paused: true } : {}),
+        ...(account.pauseDetails ? { pauseDetails: account.pauseDetails } : {}),
+        ...(account.pauseRevision ? { pauseRevision: account.pauseRevision } : {}),
         ...(account.autoSwitchThresholdOverride !== undefined ? { autoSwitchThresholdOverride: account.autoSwitchThresholdOverride } : {}),
         ...(account.needsReauthReason === "verify_account" ? { needsReauthReason: account.needsReauthReason } : {}),
         ...(account.addedAt !== undefined ? { addedAt: account.addedAt } : {}),

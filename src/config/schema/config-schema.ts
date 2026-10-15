@@ -1,5 +1,6 @@
 import { MAIN_ACCOUNT_HARD_LOCK_MIN_PERCENT } from "../../codex/quota-types";
 import * as z from "zod/v4";
+import { accountPauseStateSchema } from "./account-auto-pause";
 import { anthropicAccountPoolSchema } from "./anthropic-account-pool";
 import { compactionRecoverySchema } from "./compaction-recovery";
 import { desktopCompatibilitySchema } from "./desktop-compatibility";
@@ -287,6 +288,7 @@ export const configSchema = z.object({
   // and the default label is emitted, rather than failing the parse or writing a config Codex
   // would refuse to load — the provider id routing depends on is never derived from it.
   codexProviderDisplayName: z.string().trim().min(1).max(128).optional().catch(undefined),
+  codexAccountPauseState: accountPauseStateSchema.optional(),
   pausedCodexAccountIds: z.array(z.string().regex(/^[a-zA-Z0-9._-]{1,64}$/)).optional(),
   // A malformed allow-list degrades to "no account spends credits" rather than failing the parse,
   // so a hand-edited typo cannot trip the backup-and-defaults repair path; the write path rejects

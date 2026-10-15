@@ -1063,6 +1063,7 @@ export interface OcxConfig {
   codexAccounts?: CodexAccount[];
   /** Account ids administratively excluded from future pool selection until resumed. */
   pausedCodexAccountIds?: string[];
+  codexAccountPauseState?: Record<string, { revision: string; details?: import("./account-auto-pause").AccountPauseDetails }>;
   /**
    * Account ids, `__main__` included, allowed to keep serving from ChatGPT credits once one of
    * their usage windows is full. Every other account is skipped by selection at 100% until its
