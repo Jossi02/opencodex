@@ -45,8 +45,10 @@ export const RESPONSES_CORE_MODULES = [
   "request-sidecar-auth.ts",
   "response-effects.ts",
   "request-send-budget.ts",
+  "account-auto-pause-recovery.ts",
   "passthrough-execution.ts",
   "passthrough-dispatch.ts",
+  "passthrough-observations.ts",
   // Reached from passthrough/adapter dispatch, compact and runTurn: local spend-ledger refusal mapping.
   "spend-storage-error.ts",
   "reset-replay.ts",

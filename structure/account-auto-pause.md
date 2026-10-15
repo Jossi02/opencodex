@@ -56,6 +56,10 @@ the reason in account listings. `src/server/management/oauth-account-routes.ts` 
 the existing management authorization boundary. Key listings expose `disabled` and pause
 details. Dashboard key Resume clears the pause through that endpoint before activating
 the key; OAuth/Codex keep their existing resume actions.
+`src/server/management/route-registry.ts` declares key pause as an ordinary management mutation,
+covered by the existing account pause/resume CLI capabilities. Responses recovery and passthrough
+observation owners are included in `tests/helpers/responses-core-source.ts`; its graph guard checks
+inventory coverage, physical line limits, and acyclic dependencies including type-only imports.
 
 ## Permanent refusal pause indicators
 
