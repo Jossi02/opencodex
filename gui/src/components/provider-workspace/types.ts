@@ -66,6 +66,7 @@ export type OAuthAccountRow = AccountQuotaReading & {
   autoSwitchThresholdOverride?: number | null;
   autoSwitchThreshold?: number;
   effectiveAutoSwitchThreshold?: number;
+  plan?: string | null;
   health?: { status: OAuthAccountHealthStatus; reason?: string; until?: string };
   healthLabel?: string;
   healthSummary?: string;
