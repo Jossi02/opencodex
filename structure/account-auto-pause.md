@@ -5,8 +5,8 @@ permanent account refusals. Counters are process-local; persisted pauses require
 
 ## Opt-in account refusal observation
 
-`src/server/responses/fetch-helpers.ts` accepts an optional account binding for physical
-Codex/runTurn response observation. OAuth/key HTTP overrides capture after reselection in
+`src/server/responses/fetch-helpers.ts` accepts an optional caller-owned observer factory for physical
+Codex/runTurn response observation; the transport leaf imports no account or OAuth policy. OAuth/key HTTP overrides capture after reselection in
 `src/server/responses/request-transport.ts`; native Chat/Messages capture at their send
 boundaries. `src/oauth/account-auto-pause.ts` is dormant unless the named provider explicitly
 enables the policy, writes only fixed pause metadata, and preserves upstream responses if

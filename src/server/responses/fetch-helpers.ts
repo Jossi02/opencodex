@@ -1,4 +1,3 @@
-import { captureAccountAutoPauseAttempt, type AccountAutoPauseBinding } from "../../oauth/account-auto-pause";
 import type { NativeResponseControl } from "./native-response-control";
 import type { CodexWsPreOutputRefusalHold } from "./codex-ws-wire";
 import type { Server } from "bun";
@@ -224,7 +223,7 @@ export function sendWithConnectionPolicy(
 }
 
 export interface ProviderFetchOptions {
-  accountAutoPause?: AccountAutoPauseBinding;
+  accountAutoPause?: (name: string, provider: OcxProviderConfig, headers: Headers) => ((response: Response) => Promise<Response>) | undefined;
   /**
    * Keep this send on HTTP even where the WebSocket upstream would normally be selected.
    *
@@ -374,7 +373,7 @@ export function providerFetch(
     return httpFetch(input, init);
   };
   const unpaced = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
-    const observe = captureAccountAutoPauseAttempt(providerName, provider, options.accountAutoPause,
+    const observe = options.accountAutoPause?.(providerName, provider,
       new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)));
     const response = await unobserved(input, init);
     return observe ? observe(response) : response;

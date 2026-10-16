@@ -686,7 +686,7 @@ export async function prepareResponsesTransport(
           providerName: route.providerName, modelId: route.modelId, pacingSlotAcquired: true,
           pacingSlot: attemptSlot,
           turnScopedPacing: true,
-          accountAutoPause: { config, oauth: binding?.kind === "oauth" ? binding.snapshot : undefined },
+          accountAutoPause: (name, provider, headers) => captureAccountAutoPauseAttempt(name, provider, { config, oauth: binding?.kind === "oauth" ? binding.snapshot : undefined }, headers),
           beforeDispatch: () => {
             if (sent) return;
             if (!selectionIsCurrent(binding)) {

@@ -1,4 +1,4 @@
-import { wasAccountAutoPaused, wasPermanentAccountRefusal } from "../../oauth/account-auto-pause";
+import { captureAccountAutoPauseAttempt, wasAccountAutoPaused, wasPermanentAccountRefusal } from "../../oauth/account-auto-pause";
 import { spendLedgerStorageErrorResponse } from "./spend-storage-error";
 import { createPhysicalSendReporter } from "../../lib/request-execution-budget";
 import { createInferenceSendBudget } from "../inference/context";
@@ -1080,7 +1080,7 @@ export async function handleResponsesCompact(
         providerFetch(sendProvider, undefined, {
           providerName: route.providerName,
           modelId: route.modelId,
-          accountAutoPause: { config, codex: sendAuthCtx },
+          accountAutoPause: (name, provider, headers) => captureAccountAutoPauseAttempt(name, provider, { config, codex: sendAuthCtx }, headers),
           beforeDispatch: isCanonicalOpenAiForwardProvider(sendProvider)
             ? createCodexAuthDispatchGuard(sendAuthCtx, config, selectedModelId, admission) : undefined,
           ...(onPhysicalDispatch ? { onPhysicalDispatch } : {}),

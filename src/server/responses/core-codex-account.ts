@@ -1,4 +1,4 @@
-import { wasPermanentAccountRefusal } from "../../oauth/account-auto-pause";
+import { captureAccountAutoPauseAttempt, wasPermanentAccountRefusal } from "../../oauth/account-auto-pause";
 import type { OcxConfig, OcxProviderConfig, OcxParsedRequest } from "../../types";
 import type { CodexAuthContext, CodexAuthPolicyConfig } from "../../codex/auth-context";
 import type { CodexUpstreamOutcome } from "../../codex/routing";
@@ -1027,7 +1027,7 @@ export async function retryCodexPoolOnAlternateAccount(
             providerName: route.providerName,
             modelId: route.modelId,
             preOutputRefusalHold: args.preOutputRefusalHold,
-            accountAutoPause: { config, codex: retryAuthCtx },
+            accountAutoPause: (name, provider, headers) => captureAccountAutoPauseAttempt(name, provider, { config, codex: retryAuthCtx }, headers),
             onCodexWsQuota: codexWsQuotaObserver(retryAuthCtx, route.provider, route.modelId),
             beforeDispatch: isCanonicalOpenAiForwardProvider(route.provider)
               ? createCodexAuthDispatchGuard(retryAuthCtx, options.codexAuthPolicy ?? config, route.modelId, options.admission, options.visionDescribeTerminal === true) : undefined,
