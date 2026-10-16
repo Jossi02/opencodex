@@ -196,11 +196,12 @@ test("provider-specific exact send total preserves the original refusal", async 
   expect(sends).toBe(1);
 });
 
-for (const wire of ["chat", "messages"] as const) {
-  test(`native ${wire} recovers auto-pause reached after a same-key 429 replay`, async () => {
+for (const wire of ["chat", "messages"] as const) for (const distributed of [false, true]) {
+  test(`native ${wire} recovers auto-pause reached after a same-key 429 replay (distributed=${distributed})`, async () => {
     const config = configFor("fixture", false);
     const provider = config.providers.fixture!;
     provider.accountAutoPause = { enabled: true, consecutiveFailures: 1 };
+    if (distributed) provider.requestPacing = { enabled: true, keySelection: "round-robin", keys: { maxConcurrentRequests: 1 } };
     provider.retryOn429 = { attempts: 1, intervalMs: 100, maxIntervalMs: 100, respectRetryAfter: false };
     if (wire === "messages") {
       provider.adapter = "anthropic"; provider.baseUrl = "https://api.anthropic.com";
@@ -224,5 +225,6 @@ for (const wire of ["chat", "messages"] as const) {
     expect(response.status, text).toBe(200);
     expect(sends.length).toBe(3);
     expect(sends[2]).toContain("synthetic-B");
+    expect(config.providers.fixture!.apiKeyPool![0]!.disabled).toBe(true);
   });
 }
