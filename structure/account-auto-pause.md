@@ -69,7 +69,7 @@ on Paused badges. Disabled key rows offer Resume through their existing selectio
 `gui/src/hooks/useProviderAccountPools.ts` resumes before activation, then refreshes the
 roster under its existing selection-mutation fence. No upstream error body is displayed.
 
-`src/lib/account-auto-pause-response.ts` retains process-local pause/refusal markers when
-adapter error normalization replaces a response, without exposing metadata in HTTP headers.
+`src/lib/account-auto-pause-response.ts` registers process-local pause/refusal provenance with the pacing owner and retains it when
+adapter error normalization or a leased pacing-body rewrap replaces a response, without exposing metadata in HTTP headers.
 
 `src/types/account-auto-pause.ts` owns the policy and fixed pause-reason DTO vocabulary.

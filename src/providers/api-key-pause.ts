@@ -25,6 +25,6 @@ export function setProviderApiKeyPaused(config: OcxConfig, name: string, id: str
       else delete provider.apiKey;
     } else if (!paused && !provider.apiKey) provider.apiKey = entry.key;
     return { changed: true, selectionChanged: true, value: true };
-  });
+  }, automatic?.selection);
   return result.status === "committed" && result.value;
 }
