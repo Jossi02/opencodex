@@ -30,7 +30,7 @@ request through `src/server/responses/account-auto-pause-recovery.ts` and the ex
 `src/server/responses/passthrough-dispatch.ts` and
 `src/server/responses/core-codex-account.ts` admit a confirmed Codex auto-pause to the
 existing alternate-account ladder without reclassifying subscription refusal as a dead
-credential. `src/server/responses/compact.ts` observes the same pool contexts. Fixed
+credential. `src/server/responses/compact.ts` observes the same pool contexts; custom gateway sends stay outside Codex pool outcome recording and recovery. Fixed
 account selectors and uploaded-file constraints continue to suppress alternate moves.
 
 ## Permanent account refusal auto-pause
