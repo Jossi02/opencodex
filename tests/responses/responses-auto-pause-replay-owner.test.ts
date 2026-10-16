@@ -96,7 +96,7 @@ for (const oauth of [false, true]) for (const native of [false, true]) {
     });
     try {
       const response = await handleResponses(new Request("http://localhost/v1/responses", {
-        method: "POST", headers: { "content-type": "application/json", "x-session-id": `synthetic-${oauth}-${native}` },
+        method: "POST", headers: { "content-type": "application/json", "thread-id": `synthetic-${oauth}-${native}` },
         body: JSON.stringify({ model: `${name}/fixture`, input: "synthetic", stream: false, store: false }),
       }), config, { model: "fixture", provider: name });
       const text = await response.text();
