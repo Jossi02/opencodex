@@ -656,6 +656,15 @@ export async function prepareResponsesTransport(
       : !!config.providers[route.providerName]?.apiKey;
     if (!available) return false;
     await refreshDispatchAdapter(requestParsed);
+    // Bind before the recovery caller rebuilds. A terminal retry can be a clone;
+    // the outer request also owns continuation persistence and replay publication.
+    for (const replayParsed of new Set([parsed, requestParsed])) {
+      bindRouteReasoningReplayScope({
+        parsed: replayParsed, providerName: route.providerName, provider: route.provider,
+        adapterName: activeAdapter.name, oauthCredentialSnapshot: replayOAuthCredentialSnapshot,
+        forwardHeaders: requestState.selectedForwardHeaders,
+      });
+    }
     return true;
   };
   const refreshRunTurnAdapter = async (requestParsed: OcxParsedRequest): Promise<ProviderAdapter> => {
