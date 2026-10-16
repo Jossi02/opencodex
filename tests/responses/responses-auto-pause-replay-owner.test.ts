@@ -3,12 +3,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDefaultConfig, saveConfig } from "../../src/config";
-import { getAccountSet, saveCredential, setActiveAccount } from "../../src/oauth/store";
+import { credentialGeneration, getAccountSet, saveCredential, setActiveAccount } from "../../src/oauth/store";
 import { clearGenericFailoverHealth } from "../../src/oauth/generic-account-failover";
 import { handleResponses } from "../../src/server/responses/core";
 import * as transport from "../../src/server/responses/request-transport";
 import { createResponsesEffects } from "../../src/server/responses/response-effects";
-import { commitReasoningReplayServingIdentity } from "../../src/responses/reasoning-replay-cache";
+import { commitReasoningReplayServingIdentity, reasoningReplayKeyCredentialIdentity, reasoningReplayOAuthCredentialIdentity } from "../../src/responses/reasoning-replay-cache";
 import { flushResponseState, clearResponseStateForTests } from "../../src/responses/state";
 import type { OcxParsedRequest, OcxProviderContinuationOwner } from "../../src/types";
 import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
@@ -52,6 +52,12 @@ for (const oauth of [false, true]) for (const native of [false, true]) {
       ...(!oauth ? { apiKey: "synthetic-A", apiKeyPool: [{ id: "A", key: "synthetic-A" }, { id: "B", key: "synthetic-B" }] } : {}),
     } };
     saveConfig(config);
+    // Derive the opaque expected digest from fixture B, independently of recovery's selection.
+    const secondAccount = oauth ? getAccountSet(name)!.accounts[1]! : undefined;
+    const expectedCredentialIdentity = secondAccount
+      ? reasoningReplayOAuthCredentialIdentity({ accountId: secondAccount.id, generation: credentialGeneration(secondAccount.credential) })
+      : reasoningReplayKeyCredentialIdentity({ apiKey: "synthetic-B" });
+    expect(expectedCredentialIdentity).toBeDefined();
     const sends: string[] = [];
     globalThis.fetch = (async (_input, init) => {
       const auth = new Headers(init?.headers).get("authorization")!;
@@ -104,10 +110,12 @@ for (const oauth of [false, true]) for (const native of [false, true]) {
       expect(sends).toEqual(["Bearer synthetic-A", "Bearer synthetic-B"]);
       expect(oldOwner).toBeDefined();
       expect(oldReplayCredential).toBeDefined();
+      expect(oldOwner!.credentialIdentity).not.toBe(expectedCredentialIdentity);
+      expect(oldReplayCredential).not.toBe(expectedCredentialIdentity);
       expect(retry).toBeDefined();
       for (const parsed of [outer!, retry!]) {
-        expect(parsed._providerContinuationOwner?.credentialIdentity).not.toBe(oldOwner!.credentialIdentity);
-        expect(parsed._reasoningReplayScope?.current?.credentialIdentity).not.toBe(oldReplayCredential);
+        expect(parsed._providerContinuationOwner?.credentialIdentity).toBe(expectedCredentialIdentity);
+        expect(parsed._reasoningReplayScope?.current?.credentialIdentity).toBe(expectedCredentialIdentity);
         expect(parsed._providerContinuation).toBeUndefined();
         expect(parsed._cursorConversationId).toBeUndefined();
         expect(parsed._stripReasoningEncryptedContent).toBe(true);
@@ -115,7 +123,7 @@ for (const oauth of [false, true]) for (const native of [false, true]) {
       }
       expect(retry!._providerContinuationOwner).toEqual(outer!._providerContinuationOwner);
       expect(persisted?.__ocxOwner).toEqual(retry!._providerContinuationOwner);
-      expect(persisted?.__ocxOwner?.credentialIdentity).not.toBe(oldOwner!.credentialIdentity);
+      expect(persisted?.__ocxOwner?.credentialIdentity).toBe(expectedCredentialIdentity);
       expect(persisted?.cursor?.conversationId).toBe("synthetic-B-conversation");
     } finally { prepared.mockRestore(); }
   });
