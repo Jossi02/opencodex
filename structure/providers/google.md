@@ -118,7 +118,7 @@ For Vertex `gemini-4-argon`, matched results carry representable data-URL images
 produce a misleading "Requests ending with a model turn are not supported" error even when the
 last turn is `user`. When an adjacent orphan batch contains representable images on that route,
 the entire marked orphan batch follows the complete function-response batch in a separate user
-turn, preserving text/image order without assigning an orphan image to another call. Text-only
+turn, preserving orphan result order and image bytes without assigning an orphan image to another call. Text-only
 orphans, standalone orphans and other routes retain their existing representation.
 `tests/adapters/google/google-vertex-thought-signature.test.ts` covers the scoped wire format.
 

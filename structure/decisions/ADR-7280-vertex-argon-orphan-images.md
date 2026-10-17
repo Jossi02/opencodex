@@ -9,7 +9,7 @@
   a separate turn. The first loses content; the second invents ownership.
 - Choice: for Vertex `gemini-4-argon` only, move the entire adjacent orphan batch to a following
   user turn when it contains a representable image. Keep the complete response batch adjacent
-  to its calls and preserve the orphan markers, image bytes, and original text/image order.
+  to its calls and preserve the orphan markers, image bytes, and orphan result order.
 - Consequences: no history mutation, invented success, configuration or retry. Text-only and
   standalone orphans keep their prior shape; other Google routes are unchanged. The existing
   Vertex regression file covers duplicates, mismatches, missing results and route isolation.
