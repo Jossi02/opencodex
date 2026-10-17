@@ -203,6 +203,27 @@ describe("Vertex Argon tool-result images", () => {
     expect(JSON.parse(followup.body).contents.at(-1).parts[0].functionResponse.parts).toEqual([inline()]);
   });
 
+  test("Argon continuation replays the signature, nests the matched image and separates a duplicate image", async () => {
+    __resetAntigravityReplayCache();
+    const adapter = createGoogleAdapter(provider);
+    await adapter.buildRequest({ ...firstTurn(false), modelId: "gemini-4-argon" });
+    await adapter.parseResponse!(new Response(JSON.stringify(vertexResponseBody())));
+    const messages = history([image()]);
+    messages.push({ role: "toolResult", toolCallId: "call_shell_1", toolName: "shell_command",
+      content: [{ type: "text", text: "again" }, image("Yg==")], isError: false, timestamp: 0 });
+    const followup = await createGoogleAdapter(provider).buildRequest({ ...request(messages, false), modelId: "gemini-4-argon" });
+    const contents = JSON.parse(followup.body as string).contents;
+    expect(replayedFunctionCall(followup.body as string).thoughtSignature).toBe(SIGNATURE);
+    expect(contents.at(-2)).toEqual({ role: "user", parts: [{ functionResponse: {
+      id: "call_shell_1", name: "shell_command", response: { result: "[image]" }, parts: [inline()],
+    } }] });
+    expect(contents.at(-1)).toEqual({ role: "user", parts: [
+      { text: "[tool_result without adjacent tool_use: shell_command (call_shell_1)]\nagain[image]" }, inline("Yg=="),
+    ] });
+    const textParts = contents.flatMap((c: { parts: Array<{ text?: string }> }) => c.parts).filter((p: { text?: string }) => typeof p.text === "string");
+    expect(textParts.some((p: { text: string }) => p.text.includes("YQ==") || p.text.includes("Yg=="))).toBe(false);
+  });
+
   test.each([
     ["single image", [image()], [inline()], "[image]"],
     ["multiple images with text", [{ type: "text", text: "captured" }, image(), image("Yg==", "image/jpeg")],
