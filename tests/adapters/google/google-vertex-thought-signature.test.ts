@@ -224,6 +224,35 @@ describe("Vertex Argon tool-result images", () => {
     expect(textParts.some((p: { text: string }) => p.text.includes("YQ==") || p.text.includes("Yg=="))).toBe(false);
   });
 
+  test.each([false, true])("streaming and non-streaming continuations nest Argon images identically (stream=%p)", async (stream) => {
+    __resetAntigravityReplayCache();
+    const adapter = createGoogleAdapter(provider);
+    await adapter.buildRequest({ ...firstTurn(false), modelId: "gemini-4-argon" });
+    await adapter.parseResponse!(new Response(JSON.stringify(vertexResponseBody())));
+    const followup = await createGoogleAdapter(provider).buildRequest({
+      ...request(history([image()]), stream), modelId: "gemini-4-argon",
+    });
+    expect(followup.url).toContain(stream ? ":streamGenerateContent" : ":generateContent");
+    expect(replayedFunctionCall(followup.body as string).thoughtSignature).toBe(SIGNATURE);
+    expect(JSON.parse(followup.body as string).contents.at(-1)).toEqual({ role: "user", parts: [{ functionResponse: {
+      id: "call_shell_1", name: "shell_command", response: { result: "[image]" }, parts: [inline()],
+    } }] });
+  });
+
+  test("error results keep matched-image ownership and orphan-image placement", async () => {
+    const messages = history([{ type: "text", text: "failed" }, image()]);
+    (messages[2] as { isError: boolean }).isError = true;
+    messages.push({ role: "toolResult", toolCallId: "call_shell_1", toolName: "shell_command",
+      content: [{ type: "text", text: "failed again" }, image("Yg==")], isError: true, timestamp: 0 });
+    const body = await wire(messages);
+    expect(body.contents.at(-2)).toEqual({ role: "user", parts: [{ functionResponse: {
+      id: "call_shell_1", name: "shell_command", response: { result: "failed[image]" }, parts: [inline()],
+    } }] });
+    expect(body.contents.at(-1)).toEqual({ role: "user", parts: [
+      { text: "[tool_result without adjacent tool_use: shell_command (call_shell_1)]\nfailed again[image]" }, inline("Yg=="),
+    ] });
+  });
+
   test.each([
     ["single image", [image()], [inline()], "[image]"],
     ["multiple images with text", [{ type: "text", text: "captured" }, image(), image("Yg==", "image/jpeg")],
