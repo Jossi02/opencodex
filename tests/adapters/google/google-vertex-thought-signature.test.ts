@@ -290,6 +290,65 @@ describe("Vertex Argon tool-result images", () => {
     ] });
   });
 
+  const withAmbientVertexEnv = async (run: () => Promise<void>) => {
+    const saved = { p: process.env.GOOGLE_CLOUD_PROJECT, g: process.env.GCLOUD_PROJECT, l: process.env.GOOGLE_CLOUD_LOCATION };
+    try {
+      process.env.GOOGLE_CLOUD_PROJECT = "ambient-project";
+      process.env.GCLOUD_PROJECT = "ambient-gcloud-project";
+      process.env.GOOGLE_CLOUD_LOCATION = "europe-west4";
+      await run();
+    } finally {
+      if (saved.p === undefined) delete process.env.GOOGLE_CLOUD_PROJECT; else process.env.GOOGLE_CLOUD_PROJECT = saved.p;
+      if (saved.g === undefined) delete process.env.GCLOUD_PROJECT; else process.env.GCLOUD_PROJECT = saved.g;
+      if (saved.l === undefined) delete process.env.GOOGLE_CLOUD_LOCATION; else process.env.GOOGLE_CLOUD_LOCATION = saved.l;
+    }
+  };
+  const expectApiKeyAuth = (built: { headers?: Record<string, string> }) => {
+    const headers = Object.fromEntries(Object.entries(built.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+    expect(headers["x-goog-api-key"]).toBe("vertex-test-key");
+    expect(headers.authorization).toBeUndefined();
+  };
+  const orphanTurn = { role: "user", parts: [
+    { text: "[tool_result without adjacent tool_use: shell_command (call_shell_1)]\nagain[image]" }, inline("Yg=="),
+  ] };
+  const nestedTurn = { role: "user", parts: [{ functionResponse: {
+    id: "call_shell_1", name: "shell_command", response: { result: "[image]" }, parts: [inline()],
+  } }] };
+  function withDuplicate() {
+    const messages = history([image()]);
+    messages.push({ role: "toolResult", toolCallId: "call_shell_1", toolName: "shell_command",
+      content: [{ type: "text", text: "again" }, image("Yg==")], isError: false, timestamp: 0 });
+    return messages;
+  }
+
+  test("API-key project endpoint (#7266) carries Argon image nesting and signature replay (#7280)", async () => {
+    await withAmbientVertexEnv(async () => {
+      __resetAntigravityReplayCache();
+      const keyed = { ...provider, project: "configured-project" } as OcxProviderConfig;
+      const first = createGoogleAdapter(keyed);
+      await first.buildRequest({ ...firstTurn(false), modelId: "gemini-4-argon" });
+      await first.parseResponse!(new Response(JSON.stringify(vertexResponseBody())));
+      const followup = await createGoogleAdapter(keyed).buildRequest({ ...request(withDuplicate(), false), modelId: "gemini-4-argon" });
+      expect(followup.url).toBe("https://aiplatform.googleapis.com/v1/projects/configured-project/locations/global/publishers/google/models/gemini-4-argon:generateContent");
+      expectApiKeyAuth(followup);
+      const contents = JSON.parse(followup.body as string).contents;
+      expect(replayedFunctionCall(followup.body as string).thoughtSignature).toBe(SIGNATURE);
+      expect(contents.at(-2)).toEqual(nestedTurn);
+      expect(contents.at(-1)).toEqual(orphanTurn);
+    });
+  });
+
+  test("projectless API key stays on the express endpoint while nesting Argon images", async () => {
+    await withAmbientVertexEnv(async () => {
+      const built = await createGoogleAdapter(provider).buildRequest({ ...request(withDuplicate(), false), modelId: "gemini-4-argon" });
+      expect(built.url).toBe("https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-4-argon:generateContent");
+      expectApiKeyAuth(built);
+      const contents = JSON.parse(built.body as string).contents;
+      expect(contents.at(-2)).toEqual(nestedTurn);
+      expect(contents.at(-1)).toEqual(orphanTurn);
+    });
+  });
+
   test.each([
     ["single image", [image()], [inline()], "[image]"],
     ["multiple images with text", [{ type: "text", text: "captured" }, image(), image("Yg==", "image/jpeg")],
