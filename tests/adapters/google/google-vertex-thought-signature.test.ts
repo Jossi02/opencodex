@@ -5,7 +5,7 @@ import {
   applyAntigravityReplay,
 } from "../../../src/adapters/google-antigravity-replay";
 import { antigravitySessionId } from "../../../src/adapters/google-antigravity-wire";
-import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
+import type { AdapterEvent, OcxContentPart, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import { withTestTranslatorBudget } from "../../helpers/translator-budget";
 
 const createGoogleAdapter = (...args: Parameters<typeof createGoogleAdapterProduction>) =>
@@ -159,5 +159,112 @@ describe("Vertex thought-signature continuation (#1254)", () => {
     }];
     applyAntigravityReplay(MODEL, antigravitySessionId(first), contents);
     expect((contents[0].parts[0] as { thoughtSignature?: string }).thoughtSignature).toBeUndefined();
+  });
+});
+
+describe("Vertex Argon tool-result images", () => {
+  const image = (data = "YQ==", mediaType = "image/png"): OcxContentPart =>
+    ({ type: "image", imageUrl: `data:${mediaType};base64,${data}` });
+  const inline = (data = "YQ==", mime_type = "image/png") => ({ inline_data: { mime_type, data } });
+
+  async function wire(
+    messages = continuation().context.messages,
+    googleMode: OcxProviderConfig["googleMode"] = "vertex",
+    modelId = "gemini-4-argon",
+  ) {
+    const built = await createGoogleAdapter({ ...provider, googleMode, project: "test-project" })
+      .buildRequest({ ...request(messages, false), modelId });
+    const body = JSON.parse(built.body);
+    return body.request ?? body;
+  }
+
+  function history(content: string | OcxContentPart[]) {
+    const messages = continuation().context.messages;
+    messages[2] = { role: "toolResult", toolCallId: "call_shell_1", toolName: "shell_command",
+      content, isError: false, timestamp: 0 };
+    return messages;
+  }
+
+  test.each([
+    ["single image", [image()], [inline()], "[image]"],
+    ["multiple images with text", [{ type: "text", text: "captured" }, image(), image("Yg==", "image/jpeg")],
+      [inline(), inline("Yg==", "image/jpeg")], "captured[image][image]"],
+  ] as const)("nests %s inside the matching functionResponse", async (_label, images, expected, text) => {
+    const body = await wire(history([...images]));
+    expect(body.contents.at(-1)).toEqual({ role: "user", parts: [{ functionResponse: {
+      id: "call_shell_1", name: "shell_command", response: { result: text }, parts: [...expected],
+    } }] });
+  });
+
+  test("reversed parallel results retain image ownership and collision-safe call ids", async () => {
+    const messages = continuation().context.messages;
+    messages[1] = { role: "assistant", timestamp: 0, content: [
+      { type: "toolCall", id: "call:a", name: "first", arguments: {} },
+      { type: "toolCall", id: "call/a", name: "second", arguments: {} },
+    ] };
+    messages.splice(2, 1,
+      { role: "toolResult", toolCallId: "call/a", toolName: "second", content: [image("Yg==")],
+        isError: false, timestamp: 0 },
+      { role: "toolResult", toolCallId: "call:a", toolName: "first", isError: false, timestamp: 0,
+        content: [{ type: "text", text: "first" }, image(), image("Yw==")] },
+    );
+    const body = await wire(messages);
+    const [first, second] = body.contents[1].parts;
+    expect(first.functionCall.id).not.toBe(second.functionCall.id);
+    expect(body.contents.at(-1).parts).toEqual([
+      { functionResponse: { id: first.functionCall.id, name: "first",
+        response: { result: "first[image][image]" }, parts: [inline(), inline("Yw==")] } },
+      { functionResponse: { id: second.functionCall.id, name: "second",
+        response: { result: "[image]" }, parts: [inline("Yg==")] } },
+    ]);
+  });
+
+  test.each([
+    ["plain text", "plain text"], ["empty string", ""], ["empty parts", []],
+  ] as const)("text-only output retains its existing shape (%s)", async (_label, content) => {
+    const body = await wire(history(typeof content === "string" ? content : [...content]));
+    expect(body.contents.at(-1).parts).toEqual([{ functionResponse: {
+      id: "call_shell_1", name: "shell_command",
+      response: { result: typeof content === "string" && content ? content : "(empty tool output)" },
+    } }]);
+  });
+
+  test.each([
+    ["vertex", "gemini-3.1-pro"],
+    ["vertex", "gemini-4-argon-preview"],
+    ["ai-studio", "gemini-4-argon"],
+    ["cloud-code-assist", "gemini-4-argon"],
+  ] as const)("other routes retain image siblings (%s, %s)", async (mode, model) => {
+    const body = await wire(history([image()]), mode, model);
+    expect(body.contents.at(-1).parts).toEqual([
+      { functionResponse: { id: "call_shell_1", name: "shell_command", response: { result: "[image]" } } },
+      inline(),
+    ]);
+  });
+
+  test("ordinary user and orphan result images retain their existing shape", async () => {
+    const body = await wire([
+      { role: "user", content: [image()], timestamp: 0 },
+      { role: "toolResult", toolCallId: "orphan", toolName: "inspect", content: [image("Yg==")],
+        isError: false, timestamp: 0 },
+    ]);
+    expect(body.contents).toEqual([
+      { role: "user", parts: [inline()] },
+      { role: "user", parts: [
+        { text: "[tool_result without adjacent tool_use: inspect (orphan)]\n[image]" }, inline("Yg=="),
+      ] },
+    ]);
+  });
+
+  test("opening call, missing result and model-tail repairs stay intact", async () => {
+    const messages = continuation().context.messages;
+    const body = await wire([messages[1]]);
+    expect(body.contents[0]).toEqual({ role: "user", parts: [{ text: "(continue)" }] });
+    expect(body.contents.at(-1).parts).toEqual([{ functionResponse: {
+      id: "call_shell_1", name: "shell_command",
+      response: { result: "[missing tool_result for this tool_use in history]" },
+    } }]);
+    const tail = await wire([{ role: "assistant", content: [{ type: "text", text: "working" }], timestamp: 0 }]);
+    expect(tail.contents.at(-1)).toEqual({ role: "user", parts: [{ text: "(continue)" }] });
   });
 });

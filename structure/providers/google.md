@@ -113,9 +113,14 @@ Google-family requests serialize a model tool-call turn and its results as one a
 `model -> user` pair. The user turn contains exactly one `functionResponse` for every representable
 call in original call order. Missing results use an explicit unknown-history marker; duplicate,
 mismatched, and standalone results become marked text instead of unpaired function responses.
-Representable data-URL images remain sibling `inline_data` parts in either case.
+For Vertex `gemini-4-argon`, matched results carry representable data-URL images inside
+`functionResponse.parts`, preserving each image's call ownership. Sibling images on that route can
+produce a misleading "Requests ending with a model turn are not supported" error even when the
+last turn is `user`. Other routes and marked orphan results retain sibling `inline_data` parts.
+`tests/adapters/google/google-vertex-thought-signature.test.ts` covers the scoped wire format.
 
 > Decision record: [ADR-0058](../decisions/ADR-0058-google-tool-result-adjacency-repair.md)
+> Decision record: [ADR-7279](../decisions/ADR-7279-vertex-argon-tool-images.md)
 
 ## Google opening functionCall repair
 
