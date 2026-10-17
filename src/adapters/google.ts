@@ -562,10 +562,14 @@ function messagesToGeminiFormat(
             if (result) responseParts.push(...geminiToolResultParts(result, call.wireName, call.wireCallId, nestToolResultImages));
             else responseParts.push(geminiMissingToolResultPart(call.wireName, call.wireCallId));
           }
-          for (const orphan of orphanResults) {
-            responseParts.push(...geminiOrphanToolResultParts(orphan));
-          }
+          const orphanParts = orphanResults.flatMap(geminiOrphanToolResultParts);
           contents.push({ role: "user", parts: responseParts });
+          // Orphan images cannot share Argon's response batch or claim another call's ownership.
+          if (nestToolResultImages && orphanParts.some(part => typeof part === "object" && part !== null && "inline_data" in part)) {
+            contents.push({ role: "user", parts: orphanParts });
+          } else {
+            responseParts.push(...orphanParts);
+          }
           i = j - 1;
         }
         break;

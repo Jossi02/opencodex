@@ -193,6 +193,8 @@ OpenCodex sends Argon requests and model discovery with the CLI User-Agent
 On Vertex AI, `gemini-4-argon` receives images returned by tools, such as screenshots, inside
 the matching function response. This avoids the upstream 400 error "Requests ending with a
 model turn are not supported" after an image-producing tool call while preserving the images.
+Images from duplicate results or results without a matching call are preserved in a separate
+message after the tool responses, with a marker explaining that they could not be paired.
 No configuration change is needed; this handling is specific to Vertex Argon.
 
 For Gemini on Antigravity, including Argon, provider-marked thought summaries stay separate

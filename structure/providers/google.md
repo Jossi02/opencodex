@@ -116,11 +116,15 @@ mismatched, and standalone results become marked text instead of unpaired functi
 For Vertex `gemini-4-argon`, matched results carry representable data-URL images inside
 `functionResponse.parts`, preserving each image's call ownership. Sibling images on that route can
 produce a misleading "Requests ending with a model turn are not supported" error even when the
-last turn is `user`. Other routes and marked orphan results retain sibling `inline_data` parts.
+last turn is `user`. When an adjacent orphan batch contains representable images on that route,
+the entire marked orphan batch follows the complete function-response batch in a separate user
+turn, preserving text/image order without assigning an orphan image to another call. Text-only
+orphans, standalone orphans and other routes retain their existing representation.
 `tests/adapters/google/google-vertex-thought-signature.test.ts` covers the scoped wire format.
 
 > Decision record: [ADR-0058](../decisions/ADR-0058-google-tool-result-adjacency-repair.md)
 > Decision record: [ADR-7279](../decisions/ADR-7279-vertex-argon-tool-images.md)
+> Decision record: [ADR-7280](../decisions/ADR-7280-vertex-argon-orphan-images.md)
 
 ## Google opening functionCall repair
 

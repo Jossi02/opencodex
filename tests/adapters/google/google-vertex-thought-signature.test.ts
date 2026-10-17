@@ -185,6 +185,24 @@ describe("Vertex Argon tool-result images", () => {
     return messages;
   }
 
+  test.each([false, true])("Argon image continuation replays the original signature (stream=%s)", async (stream) => {
+    __resetAntigravityReplayCache();
+    const adapter = createGoogleAdapter(provider);
+    await adapter.buildRequest({ ...firstTurn(stream), modelId: "gemini-4-argon" });
+    const json = JSON.stringify(vertexResponseBody());
+    const response = new Response(stream ? `data: ${json}\n\n` : json);
+    const events: AdapterEvent[] = [];
+    if (stream) {
+      for await (const event of adapter.parseStream(response)) events.push(event);
+    } else events.push(...await adapter.parseResponse!(response));
+    expect(events.some(event => event.type === "tool_call_start")).toBe(true);
+    const followup = await createGoogleAdapter(provider).buildRequest({
+      ...request(history([image()]), false), modelId: "gemini-4-argon",
+    });
+    expect(replayedFunctionCall(followup.body as string).thoughtSignature).toBe(SIGNATURE);
+    expect(JSON.parse(followup.body).contents.at(-1).parts[0].functionResponse.parts).toEqual([inline()]);
+  });
+
   test.each([
     ["single image", [image()], [inline()], "[image]"],
     ["multiple images with text", [{ type: "text", text: "captured" }, image(), image("Yg==", "image/jpeg")],
@@ -253,6 +271,70 @@ describe("Vertex Argon tool-result images", () => {
       { role: "user", parts: [
         { text: "[tool_result without adjacent tool_use: inspect (orphan)]\n[image]" }, inline("Yg=="),
       ] },
+    ]);
+  });
+
+  test.each(["call_shell_1", "unknown"])("separates orphan images after the complete response batch (%s)", async (id) => {
+    const messages = history([image()]);
+    messages.push(
+      { role: "toolResult", toolCallId: id, toolName: "inspect", content: "before", isError: false, timestamp: 0 },
+      { role: "toolResult", toolCallId: id, toolName: "inspect",
+        content: [{ type: "text", text: "orphan" }, image("Yg=="), image("Yw==", "image/jpeg")],
+        isError: false, timestamp: 0 },
+      { role: "toolResult", toolCallId: id, toolName: "inspect", content: "after", isError: false, timestamp: 0 },
+    );
+    const original = structuredClone(messages);
+    const body = await wire(messages);
+    expect(body.contents.slice(2)).toEqual([
+      { role: "user", parts: [{ functionResponse: {
+        id: "call_shell_1", name: "shell_command", response: { result: "[image]" }, parts: [inline()],
+      } }] },
+      { role: "user", parts: [
+        { text: `[tool_result without adjacent tool_use: inspect (${id})]\nbefore` },
+        { text: `[tool_result without adjacent tool_use: inspect (${id})]\norphan[image][image]` },
+        inline("Yg=="), inline("Yw==", "image/jpeg"),
+        { text: `[tool_result without adjacent tool_use: inspect (${id})]\nafter` },
+      ] },
+    ]);
+    expect(messages).toEqual(original);
+  });
+
+  test("orphan images follow missing responses without claiming a successful call", async () => {
+    const messages = continuation().context.messages;
+    messages[2] = { role: "toolResult", toolCallId: "unknown", toolName: "inspect", content: [image()],
+      isError: false, timestamp: 0 };
+    const body = await wire(messages);
+    expect(body.contents[2].parts).toEqual([{ functionResponse: {
+      id: "call_shell_1", name: "shell_command",
+      response: { result: "[missing tool_result for this tool_use in history]" },
+    } }]);
+    expect(body.contents[3]).toEqual({ role: "user", parts: [
+      { text: "[tool_result without adjacent tool_use: inspect (unknown)]\n[image]" }, inline(),
+    ] });
+  });
+
+  test.each(["vertex", "ai-studio", "cloud-code-assist"] as const)("text-only orphans retain their existing batch (%s)", async (mode) => {
+    const messages = history("done");
+    messages.push({ role: "toolResult", toolCallId: "unknown", toolName: "inspect", content: "orphan",
+      isError: false, timestamp: 0 });
+    const body = await wire(messages, mode);
+    expect(body.contents.at(-1).parts).toEqual([
+      { functionResponse: { id: "call_shell_1", name: "shell_command", response: { result: "done" } } },
+      { text: "[tool_result without adjacent tool_use: inspect (unknown)]\norphan" },
+    ]);
+  });
+
+  test.each([
+    ["vertex", "gemini-3.1-pro"], ["vertex", "gemini-4-argon-preview"],
+    ["ai-studio", "gemini-4-argon"], ["cloud-code-assist", "gemini-4-argon"],
+  ] as const)("other routes retain orphan image siblings (%s, %s)", async (mode, model) => {
+    const messages = history("done");
+    messages.push({ role: "toolResult", toolCallId: "unknown", toolName: "inspect", content: [image()],
+      isError: false, timestamp: 0 });
+    const body = await wire(messages, mode, model);
+    expect(body.contents.at(-1).parts).toEqual([
+      { functionResponse: { id: "call_shell_1", name: "shell_command", response: { result: "done" } } },
+      { text: "[tool_result without adjacent tool_use: inspect (unknown)]\n[image]" }, inline(),
     ]);
   });
 

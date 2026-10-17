@@ -124,6 +124,8 @@ Google Antigravity 계정·제공자 할당량 확인은 모델 목록 폴백을
 Vertex AI의 `gemini-4-argon`에는 스크린샷 같은 도구 결과 이미지를 해당 함수 응답 안에 담아
 전송합니다. 이미지가 있는 도구 호출 뒤에 발생하는 400 오류
 "Requests ending with a model turn are not supported"를 방지하며 이미지를 보존합니다.
+중복된 결과나 일치하는 호출이 없는 결과의 이미지는 도구 응답 뒤의 별도 메시지로 보존하고,
+호출과 연결할 수 없었다는 표시를 남깁니다.
 별도의 설정 변경은 필요하지 않으며, 이 처리는 Vertex Argon에만 적용됩니다.
 
 ### Google 도구 스키마 손실 진단
